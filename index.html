@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Controle Financeiro</title>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 800px; margin: auto; padding: 20px; background: #f4f4f9; }
+    h1 { text-align: center; }
+    label { display: block; margin-top: 10px; }
+    input, select { width: 100%; padding: 8px; margin-top: 5px; }
+    button { margin-top: 10px; padding: 10px; width: 100%; background-color: #4CAF50; color: white; border: none; cursor: pointer; }
+    button:hover { background-color: #45a049; }
+    table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+    th, td { border: 1px solid #ddd; padding: 8px; text-align: center; }
+    th { background-color: #4CAF50; color: white; }
+    .saldo { font-weight: bold; font-size: 1.2em; margin-top: 20px; }
+    .filtro { margin-top: 20px; }
+    canvas { margin-top: 30px; }
+    .excluir-btn { background-color: #f44336; color: white; border: none; padding: 5px 10px; cursor: pointer; }
+  </style>
+</head>
+<body>
+
+  <h1>Controle Financeiro</h1>
+
+  <form id="form-gasto">
+    <label>Descrição do gasto:
+      <input type="text" id="descricao" required />
+    </label>
+    <label>Valor (R$):
+      <input type="number" id="valor" step="0.01" min="0.01" required />
+    </label>
+    <label>Categoria:
+      <select id="categoria" required>
+        <option value="">Selecione</option>
+        <option value="Essencial">Gastos Essenciais</option>
+        <option value="Nao Essencial">Gastos Não Essenciais</option>
+        <option value="Investimento">Investimento</option>
+      </select>
+    </label>
+    <label>Data:
+      <input type="date" id="data" required />
+    </label>
+    <button type="submit">Adicionar Gasto</button>
+  </form>
+
+  <form id="form-receita" style="margin-top:30px;">
+    <label>Descrição da receita:
+      <input type="text" id="descricaoReceita" required />
+    </label>
+    <label>Valor da receita (R$):
+      <input type="number" id="valorReceita" step="0.01" min="0.01" required />
+    </label>
+    <label>Data da receita:
+      <input type="date" id="dataReceita" required />
+    </label>
+    <button type="submit">Adicionar Receita</button>
+  </form>
+
+  <div class="filtro">
+    <label>Filtrar por categoria:
+      <select id="filtroCategoria">
+        <option value="Todos">Todos</option>
+        <option value="Essencial">Gastos Essenciais</option>
+        <option value="Nao Essencial">Gastos Não Essenciais</option>
+        <option value="Investimento">Investimento</option>
+      </select>
+    </label>
+    <label>Filtrar por mês:
+      <input type="month" id="filtroMes" />
+    </label>
+    <button id="btn-limpar-filtros">Limpar filtros</button>
+  </div>
+
+  <h2>Gastos</h2>
+  <table id="tabela-gastos">
+    <thead>
+      <tr><th>Descrição</th><th>Valor (R$)</th><th>Categoria</th><th>Data</th><th>Ações</th></tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+
+  <h2>Receitas</h2>
+  <table id="tabela-receitas">
+    <thead>
+      <tr><th>Descrição</th><th>Valor (R$)</th><th>Data</th><th>Ações</th></tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+
+  <div class="saldo" id="saldo"></div>
+
+  <canvas id="graficoCategorias" width="400" height="250"></canvas>
+  <canvas id="graficoMeses" width="400" height="250"></canvas>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script>
+    // Variáveis para armazenar os dados
+    let gastos = JSON.parse(localStorage.getItem('gastos')) || [];
+    let receitas = JSON.parse(localStorage.getItem('receitas')) || [];
+
+    // Referências aos elementos
+    const formGasto = document.getElementById('form-gasto');
+    const formReceita = document.getElementById('form-receita');
+    const tabelaGastos = document.querySelector('#tabela-gastos tbody');
+    const tabelaReceitas = document.querySelector('#tabela-receitas tbody');
+    const filtroCategoria = document.getElementById('filtroCategoria');
+    const filtroMes = document.getElementById('filtroMes');
+    const btnLimparFiltros = document.getElementById('btn-limpar-filtros');
+    const saldoDisplay = document.getElementById('saldo');
+
+    // Função para formatar data
+    function formatarData(dataStr) {
+      const data = new Date(dataStr);
+      return data.toLocaleDateString('pt-BR');
+    }
+
+    // Função para atualizar a exibição das tabelas
+    function atualizarTabelas() {
+      tabelaGastos.innerHTML = '';
+      tabelaReceitas.innerHTML = '';
+
+      // Aplicar filtros
+      const categoriaSelecionada = filtroCategoria.value;
+      const mesSelecionado = filtroMes.value;
+
+      function filtrarData(dataStr) {
+        if (!mesSelecionado) return true;
+        const data = new Date(dataStr);
+        const anoMes = mesSelecionado.split('-');
+        return data.getFullYear() === parseInt(anoMes[0]) && (data.getMonth() + 1) === parseInt(anoMes[1]);
+      }
+
+      // Gastos filtrados
+      const gastosFiltrados = gastos.filter(g => {
+        return (categoriaSelecionada === 'Todos' || g.categoria === categoriaSelecionada) && filtrarData(g.data);
+      });
+
+      // Receitas filtradas
+      const receitasFiltradas = receitas.filter(r => filtrarData(r.data));
+
+      // Mostrar gastos
+      gastosFiltrados.forEach((gasto, index) => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${gasto.descricao}</td>
+          <td>R$ ${gasto.valor.toFixed(2)}</td>
+          <td>${gasto.categoria}</td>
+          <td>${formatarData(gasto.data)}</td>
+          <td><button class="excluir-btn" onclick="removerGasto(${index})">Excluir</button></td>
+        `;
+        tabelaGastos.appendChild(tr);
+      });
+
+      // Mostrar receitas
+      receitasFiltradas.forEach((receita, index) => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${receita.descricao}</td>
+          <td>R$ ${receita.valor.toFixed(2)}</td>
+          <td>${formatarData(receita.data)}</td>
+          <td><button class="excluir-btn" onclick="removerReceita(${index})">Excluir</button></td>
+        `;
+        tabelaReceitas.appendChild(tr);
+      });
+
+      atualizarSaldo();
+      atualizarGraficos(gastosFiltrados);
+    }
+
+    // Adicionar gasto
+    formGasto.addEventListener('submit', e => {
+      e.preventDefault();
+      const descricao = document.getElementById('descricao').value.trim();
+      const valor = parseFloat(document.getElementById('valor').value);
+      const categoria = document.getElementById('categoria').value;
+      const data = document.getElementById('data').value;
+
+      if (!descricao || !valor || !categoria || !data) return alert('Preencha todos os campos!');
+
+      gastos.push({ descricao, valor, categoria, data });
+      localStorage.setItem('gastos', JSON.stringify(gastos));
+      formGasto.reset();
+      atualizarTabelas();
+    });
+
+    // Adicionar receita
+    formReceita.addEventListener('submit', e => {
+      e.preventDefault();
+      const descricao = document.getElementById('descricaoReceita').value.trim();
+      const valor = parseFloat(document.getElementById('valorReceita').value);
+      const data = document.getElementById('dataReceita').value;
+
+      if (!descricao || !valor || !data) return alert('Preencha todos os campos!');
+
+      receitas.push({ descricao, valor, data });
+      localStorage.setItem('receitas', JSON.stringify(receitas));
+      formReceita.reset();
+      atualizarTabelas();
+    });
+
+    // Remover gasto
+    function removerGasto(index) {
+      gastos.splice(index, 1);
+      localStorage.setItem('gastos', JSON.stringify(gastos));
+      atualizarTabelas();
+    }
+
+    // Remover receita
+    function removerReceita(index) {
+      receitas.splice(index, 1);
+      localStorage.setItem('receitas', JSON.stringify(receitas));
+      atualizarTabelas();
+    }
+
+    // Atualizar saldo
+    function atualizarSaldo() {
+      const totalGastos = gastos.reduce((acc, g) => acc + g.valor, 0);
+      const totalReceitas = receitas.reduce((acc, r) => acc + r.valor, 0);
+      const saldo = totalReceitas - totalGastos;
+      saldoDisplay.textContent = `Saldo atual: R$ ${saldo.toFixed(2)}`;
+    }
+
+    // Atualizar gráficos
+    let graficoCategorias = null;
+    let graficoMeses = null;
+
+    function atualizarGraficos(gastosFiltrados) {
+      // Dados para gráfico por categoria
+      const categorias = ['Essencial', 'Nao Essencial', 'Investimento'];
+      const valoresCategorias = categorias.map(cat => {
+        return gastosFiltrados
+          .filter(g => g.categoria === cat)
+          .reduce((acc, g) => acc + g.valor, 0);
+      });
+
+      // Gráfico de pizza (categorias)
+      if (graficoCategorias) graficoCategorias.destroy();
+      const ctx1 = document.getElementById('graficoCategorias').getContext('2d');
+      graficoCategorias = new Chart(ctx1, {
+        type: 'pie',
+        data: {
+          labels: ['Gastos Essenciais', 'Gastos Não Essenciais', 'Investimentos'],
+          datasets: [{
+            data: valoresCategorias,
+            backgroundColor: ['#4caf50', '#ff9800', '#2196f3'],
+          }]
+        },
+        options: {
+          responsive: true,
+          plugins: {
+            legend: { position: 'bottom' }
+          }
+        }
+      });
+
+      // Dados para gráfico por mês
+      const meses = {};
+      gastosFiltrados.forEach(g => {
+        const d = new Date(g.data);
+        const chave = `${d.getFullYear()}-${(d.getMonth() + 1).toString().padStart(2, '0')}`;
+        meses[chave] = (meses[chave] || 0) + g.valor;
+      });
+
+      // Organizar meses em ordem
+      const labelsMeses = Object.keys(meses).sort();
+      const valoresMeses = labelsMeses.map(m => meses[m]);
+
+      // Gráfico de barras (meses)
+      if (graficoMeses) graficoMeses.destroy();
+      const ctx2 = document.getElementById('graficoMeses').getContext('2d');
+      graficoMeses = new Chart(ctx2, {
+        type: 'bar',
+        data: {
+          labels: labelsMeses,
+          datasets: [{
+            label: 'Gastos por mês (R$)',
+            data: valoresMeses,
+            backgroundColor: '#ff5722'
+          }]
+        },
+        options: {
+          responsive: true,
+          scales: {
+            y: { beginAtZero: true }
+          }
+        }
+      });
+    }
+
+    // Limpar filtros
+    btnLimparFiltros.addEventListener('click', e => {
+      e.preventDefault();
+      filtroCategoria.value = 'Todos';
+      filtroMes.value = '';
+      atualizarTabelas();
+    });
+
+    // Atualiza tabela e gráficos ao mudar filtros
+    filtroCategoria.addEventListener('change', atualizarTabelas);
+    filtroMes.addEventListener('change', atualizarTabelas);
+
+    // Inicializa
+    atualizarTabelas();
+  </script>
+
+</body>
+</html>
