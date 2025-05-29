@@ -1,0 +1,232 @@
+
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Controle de Finanças</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 20px; max-width: 800px; margin: auto; }
+    input, select { margin: 5px 0; width: 100%; padding: 8px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+    th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
+    th { background-color: #f0f0f0; }
+    .total { margin-top: 20px; font-weight: bold; }
+    .filters { margin: 20px 0; }
+    .remove-btn { background-color: red; color: white; border: none; padding: 5px 10px; cursor: pointer; }
+    canvas { margin-top: 40px; }
+  </style>
+</head>
+<body>
+
+  <h1>Controle de Finanças</h1>
+
+  <form id="receita-form">
+    <h2>Adicionar Receita</h2>
+    <label>Descrição:</label>
+    <input type="text" id="receita-descricao" required />
+
+    <label>Valor (R$):</label>
+    <input type="number" id="receita-valor" step="0.01" required />
+
+    <label>Data:</label>
+    <input type="date" id="receita-data" required />
+
+    <button type="submit">Adicionar Receita</button>
+  </form>
+
+  <form id="gasto-form">
+    <h2>Adicionar Gasto</h2>
+    <label>Descrição:</label>
+    <input type="text" id="descricao" required />
+    
+    <label>Valor (R$):</label>
+    <input type="number" id="valor" step="0.01" required />
+    
+    <label>Categoria:</label>
+    <select id="categoria">
+      <option>Essencial</option>
+      <option>Não Essencial</option>
+      <option>Investimento</option>
+    </select>
+
+    <label>Data:</label>
+    <input type="date" id="data" required />
+    
+    <button type="submit">Adicionar Gasto</button>
+  </form>
+
+  <div class="filters">
+    <h3>Filtros</h3>
+    <label>Categoria:</label>
+    <select id="filtro-categoria">
+      <option value="">Todas</option>
+      <option>Essencial</option>
+      <option>Não Essencial</option>
+      <option>Investimento</option>
+    </select>
+
+    <label>Data:</label>
+    <input type="month" id="filtro-data" />
+  </div>
+
+  <div class="total">
+    Total de Gastos: R$ <span id="total-gastos">0.00</span><br/>
+    Total de Receitas: R$ <span id="total-receitas">0.00</span><br/>
+    Saldo: R$ <span id="saldo">0.00</span>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Descrição</th>
+        <th>Valor (R$)</th>
+        <th>Categoria</th>
+        <th>Data</th>
+        <th>Ação</th>
+      </tr>
+    </thead>
+    <tbody id="lista-transacoes"></tbody>
+  </table>
+
+  <canvas id="graficoCategorias"></canvas>
+  <canvas id="graficoMensal"></canvas>
+
+  <script>
+    const gastos = JSON.parse(localStorage.getItem('gastos')) || [];
+    const receitas = JSON.parse(localStorage.getItem('receitas')) || [];
+
+    const lista = document.getElementById('lista-transacoes');
+    const totalGastosSpan = document.getElementById('total-gastos');
+    const totalReceitasSpan = document.getElementById('total-receitas');
+    const saldoSpan = document.getElementById('saldo');
+    const filtroCategoria = document.getElementById('filtro-categoria');
+    const filtroData = document.getElementById('filtro-data');
+    const canvasCategorias = document.getElementById('graficoCategorias');
+    const canvasMensal = document.getElementById('graficoMensal');
+    let graficoCategorias, graficoMensal;
+
+    document.getElementById('gasto-form').addEventListener('submit', e => {
+      e.preventDefault();
+      const descricao = document.getElementById('descricao').value;
+      const valor = parseFloat(document.getElementById('valor').value);
+      const categoria = document.getElementById('categoria').value;
+      const data = document.getElementById('data').value;
+      if (!descricao || isNaN(valor) || !data) return;
+
+      gastos.push({ descricao, valor, categoria, data });
+      localStorage.setItem('gastos', JSON.stringify(gastos));
+      e.target.reset();
+      atualizar();
+    });
+
+    document.getElementById('receita-form').addEventListener('submit', e => {
+      e.preventDefault();
+      const descricao = document.getElementById('receita-descricao').value;
+      const valor = parseFloat(document.getElementById('receita-valor').value);
+      const data = document.getElementById('receita-data').value;
+      if (!descricao || isNaN(valor) || !data) return;
+
+      receitas.push({ descricao, valor, data });
+      localStorage.setItem('receitas', JSON.stringify(receitas));
+      e.target.reset();
+      atualizar();
+    });
+
+    function removerTransacao(index, tipo) {
+      if (tipo === 'gasto') {
+        gastos.splice(index, 1);
+        localStorage.setItem('gastos', JSON.stringify(gastos));
+      } else {
+        receitas.splice(index, 1);
+        localStorage.setItem('receitas', JSON.stringify(receitas));
+      }
+      atualizar();
+    }
+
+    function atualizar() {
+      lista.innerHTML = '';
+      let totalGastos = 0;
+      let totalReceitas = 0;
+
+      const catFiltro = filtroCategoria.value;
+      const dataFiltro = filtroData.value;
+
+      const gastosFiltrados = gastos.filter(g => {
+        const condCat = catFiltro ? g.categoria === catFiltro : true;
+        const condData = dataFiltro ? g.data.startsWith(dataFiltro) : true;
+        return condCat && condData;
+      });
+
+      gastosFiltrados.forEach((gasto, index) => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${gasto.descricao}</td>
+          <td>${gasto.valor.toFixed(2)}</td>
+          <td>${gasto.categoria}</td>
+          <td>${gasto.data}</td>
+          <td><button class="remove-btn" onclick="removerTransacao(${index}, 'gasto')">Remover</button></td>
+        `;
+        lista.appendChild(tr);
+        totalGastos += gasto.valor;
+      });
+
+      receitas.forEach((receita, index) => {
+        totalReceitas += receita.valor;
+      });
+
+      totalGastosSpan.textContent = totalGastos.toFixed(2);
+      totalReceitasSpan.textContent = totalReceitas.toFixed(2);
+      saldoSpan.textContent = (totalReceitas - totalGastos).toFixed(2);
+
+      atualizarGraficoCategorias(gastosFiltrados);
+      atualizarGraficoMensal();
+    }
+
+    function atualizarGraficoCategorias(gastosFiltrados) {
+      const porCategoria = {};
+      gastosFiltrados.forEach(g => {
+        porCategoria[g.categoria] = (porCategoria[g.categoria] || 0) + g.valor;
+      });
+      const labels = Object.keys(porCategoria);
+      const data = Object.values(porCategoria);
+
+      if (graficoCategorias) graficoCategorias.destroy();
+      graficoCategorias = new Chart(canvasCategorias, {
+        type: 'pie',
+        data: {
+          labels: labels,
+          datasets: [{ data, backgroundColor: ['#ff6384', '#36a2eb', '#4bc0c0'] }]
+        }
+      });
+    }
+
+    function atualizarGraficoMensal() {
+      const porMes = {};
+
+      gastos.forEach(g => {
+        const mes = g.data.substring(0, 7);
+        porMes[mes] = (porMes[mes] || 0) + g.valor;
+      });
+
+      const labels = Object.keys(porMes).sort();
+      const data = labels.map(m => porMes[m]);
+
+      if (graficoMensal) graficoMensal.destroy();
+      graficoMensal = new Chart(canvasMensal, {
+        type: 'bar',
+        data: {
+          labels,
+          datasets: [{ label: 'Gastos por Mês', data, backgroundColor: '#36a2eb' }]
+        }
+      });
+    }
+
+    filtroCategoria.addEventListener('change', atualizar);
+    filtroData.addEventListener('change', atualizar);
+
+    atualizar();
+  </script>
+</body>
+</html>
